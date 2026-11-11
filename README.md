@@ -2,7 +2,7 @@
 
 A small background job service written in Rust. You send it jobs over HTTP, a few workers run them in the background, and you can ask what happened to each job.
 
-It's built to show how a job queue works: shared state between workers, retries with backoff, backpressure, and shutting down without losing work in progress.
+A learning project, built to practise Rust and concurrent programming. It shows how a job queue works: shared state between workers, retries with backoff, backpressure, and shutting down without losing work in progress.
 
 ## What it does
 
@@ -57,11 +57,13 @@ The demo worker treats a few payloads specially so you can see retries:
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/jobs -ContentType 'application/json' -Body '{"payload":"flaky"}'
 ```
 
-Poll a job to watch it change state:
+Poll a job to watch it change state (change `2` to the id the previous command returned):
 
 ```powershell
 1..12 | ForEach-Object { Invoke-RestMethod -Uri http://127.0.0.1:3000/jobs/2; Start-Sleep -Milliseconds 300 }
 ```
+
+A `broken` job works the same way. Post `{"payload":"broken"}` and poll its id: it retries a few times, then ends as `failed`.
 
 Look up a job that doesn't exist (returns 404):
 
@@ -74,6 +76,8 @@ Fill the queue to see it push back (the last few are refused with `ServiceUnavai
 ```powershell
 1..15 | ForEach-Object { try { Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/jobs -ContentType 'application/json' -Body '{"payload":"ok"}' } catch { "refused: " + $_.Exception.Response.StatusCode } }
 ```
+
+See a clean shutdown: post a few jobs, then press Ctrl-C in the server window. Running jobs finish, then it prints a summary and how many jobs were left in the queue.
 
 ## API
 
