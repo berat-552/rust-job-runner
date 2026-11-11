@@ -1,3 +1,5 @@
+//! HTTP endpoints: submit a job (`POST /jobs`) and check its status (`GET /jobs/{id}`).
+
 use crate::job::{Job, JobStatus};
 use crate::queue::{JobQueue, QueueError};
 use axum::extract::{Path, State};
@@ -9,9 +11,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
+/// State given to every request handler. Cloning is cheap: all clones share
+/// the same queue and id counter.
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) queue: Arc<Mutex<JobQueue>>,
+    /// Source of unique job ids, starting at 1.
     next_id: Arc<AtomicU64>,
 }
 
@@ -24,22 +29,26 @@ impl AppState {
     }
 }
 
+/// Body of `POST /jobs`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SubmitRequest {
     pub payload: String,
 }
 
+/// Body returned for an accepted job.
 #[derive(Debug, Serialize)]
 pub(crate) struct SubmitResponse {
     pub id: u64,
 }
 
+/// Body of `GET /jobs/{id}`. `status` is `pending`, `running`, `completed` or `failed`.
 #[derive(Debug, Serialize)]
 pub(crate) struct StatusResponse {
     pub id: u64,
     pub status: String,
 }
 
+/// Builds the router with both endpoints.
 pub(crate) fn router(state: AppState) -> Router {
     Router::new()
         .route("/jobs", post(submit_job))
@@ -47,6 +56,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
+/// `POST /jobs`: assigns an id and queues the job.
+///
+/// Returns `201` with the id, `503` if the queue is full, or `500` for any other
+/// queue error. Ids are unique but not contiguous: a refused job still uses one.
 async fn submit_job(
     State(state): State<AppState>,
     Json(request): Json<SubmitRequest>,
@@ -66,6 +79,7 @@ async fn submit_job(
     }
 }
 
+/// The text used for each status in API responses.
 fn status_name(status: JobStatus) -> &'static str {
     match status {
         JobStatus::Pending => "pending",
@@ -75,6 +89,9 @@ fn status_name(status: JobStatus) -> &'static str {
     }
 }
 
+/// `GET /jobs/{id}`: returns `200` with the job's status, or `404` if the id is unknown.
+///
+/// A job waiting to be retried reports `running`, because its worker still holds it.
 async fn get_job(
     State(state): State<AppState>,
     Path(id): Path<u64>,

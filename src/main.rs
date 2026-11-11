@@ -1,3 +1,6 @@
+//! Starts the queue, three workers and the HTTP server.
+//! On Ctrl-C it stops taking requests, lets running jobs finish, then exits.
+
 mod api;
 mod job;
 mod queue;
@@ -24,6 +27,8 @@ async fn main() {
         workers.spawn(async move {
             println!("worker {} started", worker_id);
 
+            // Demo handler: `flaky` fails twice then succeeds, `broken` always
+            // fails, and anything else succeeds. Each job takes 500 ms.
             run_worker(worker_queue, move |job| async move {
                 println!(
                     "worker {} running job {} ({}), retry_count {}",

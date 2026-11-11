@@ -1,13 +1,22 @@
+//! The waiting line of jobs, shared between the HTTP handlers and the workers.
+//! It also keeps the latest status of every job it has seen.
+
 use crate::job::{Job, JobStatus};
 use std::collections::{HashMap, VecDeque};
 
+/// Why the queue refused a job.
 #[derive(Debug, PartialEq)]
 pub(crate) enum QueueError {
+    /// Only `Pending` jobs can be submitted.
     JobNotPending,
+    /// The job isn't `Failed`, or it has used all its retries.
     RetryNotAllowed,
+    /// The queue is at capacity. The caller should try again later.
     QueueFull,
 }
 
+/// Counts of finished jobs. `failed` means given up after all retries, not
+/// "failed once".
 #[derive(Debug, PartialEq)]
 pub(crate) struct ProcessSummary {
     pub completed: usize,
@@ -15,21 +24,30 @@ pub(crate) struct ProcessSummary {
 }
 
 impl ProcessSummary {
+    /// Adds another summary's counts into this one.
     pub fn merge(&mut self, other: ProcessSummary) {
         self.completed += other.completed;
         self.failed += other.failed;
     }
 }
 
+/// First-in, first-out queue of `Pending` jobs.
+///
+/// Not thread-safe on its own. Share it as `Arc<Mutex<JobQueue>>`.
 pub(crate) struct JobQueue {
     jobs: VecDeque<Job>,
+    /// No more jobs will be submitted. Workers exit once the queue is also empty.
     closed: bool,
+    /// Shut down: no more jobs are handed out, even if some are waiting.
     stopped: bool,
+    /// Maximum waiting jobs. `None` means unlimited.
     capacity: Option<usize>,
+    /// Latest known status of every job, by id. Never cleaned up.
     statuses: HashMap<u64, JobStatus>,
 }
 
 impl JobQueue {
+    /// Creates an open queue with no size limit.
     pub fn new() -> JobQueue {
         JobQueue {
             jobs: VecDeque::new(),
@@ -40,6 +58,7 @@ impl JobQueue {
         }
     }
 
+    /// Creates a queue that refuses new jobs once `capacity` are waiting.
     pub fn with_capacity(capacity: usize) -> JobQueue {
         JobQueue {
             capacity: Some(capacity),
@@ -55,11 +74,14 @@ impl JobQueue {
         self.jobs.is_empty()
     }
 
+    /// Says no more jobs are coming. Jobs already waiting are still handed out.
     pub fn close(&mut self) {
         self.closed = true;
     }
 
-    /// Stop handing out jobs. Jobs still waiting stay in the queue.
+    /// Stops handing out jobs and closes the queue.
+    ///
+    /// Waiting jobs stay in the queue, unrun. Jobs already handed out aren't affected.
     pub fn shutdown(&mut self) {
         self.stopped = true;
         self.closed = true;
@@ -69,6 +91,7 @@ impl JobQueue {
         self.closed
     }
 
+    /// Latest known status of a job, or `None` if the id was never seen.
     pub fn status_of(&self, id: u64) -> Option<JobStatus> {
         self.statuses.get(&id).copied()
     }
@@ -78,6 +101,10 @@ impl JobQueue {
         self.statuses.insert(job.id, job.status());
     }
 
+    /// Adds a job at the back.
+    ///
+    /// Returns `JobNotPending` if the job isn't `Pending`, and `QueueFull` at
+    /// capacity. The queue is unchanged on error.
     pub fn submit(&mut self, job: Job) -> Result<(), QueueError> {
         if job.status() != JobStatus::Pending {
             return Err(QueueError::JobNotPending);
@@ -94,6 +121,9 @@ impl JobQueue {
         Ok(())
     }
 
+    /// Removes the front job, marks it `Running` and returns it.
+    ///
+    /// Returns `None` if the queue is empty or shut down.
     pub fn next_job(&mut self) -> Option<Job> {
         if self.stopped {
             return None;
@@ -106,6 +136,11 @@ impl JobQueue {
         Some(job)
     }
 
+    /// Single-threaded helper (the server doesn't use it). Runs one job through
+    /// `handler` and marks it `Completed` or `Failed`.
+    ///
+    /// Returns the finished job, or `None` if there was nothing to run. Doesn't
+    /// retry or record the final status.
     pub async fn process_next<F, Fut>(&mut self, handler: F) -> Option<Job>
     where
         F: Fn(Job) -> Fut,
@@ -121,6 +156,10 @@ impl JobQueue {
         Some(job)
     }
 
+    /// Retries a failed job: calls `Job::retry`, then puts it at the back.
+    ///
+    /// Ignores `capacity`, because the job was already accepted. Returns
+    /// `RetryNotAllowed` if the job isn't `Failed` or has no retries left.
     pub fn requeue(&mut self, mut job: Job) -> Result<(), QueueError> {
         job.retry().map_err(|_| QueueError::RetryNotAllowed)?;
 
@@ -130,6 +169,8 @@ impl JobQueue {
         Ok(())
     }
 
+    /// Single-threaded helper (the server doesn't use it). Runs jobs until the
+    /// queue is empty, requeueing failures. Doesn't wait between retries.
     pub async fn process_all<F, Fut>(&mut self, handler: F) -> ProcessSummary
     where
         F: Fn(Job) -> Fut,

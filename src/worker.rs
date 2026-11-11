@@ -1,3 +1,5 @@
+//! The worker loop: takes jobs from the shared queue and runs them.
+
 use crate::job::Job;
 use crate::queue::{JobQueue, ProcessSummary};
 use std::future::Future;
@@ -5,8 +7,19 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
+/// Wait before checking again when the queue is empty but still open.
 const IDLE_POLL: Duration = Duration::from_millis(20);
 
+/// Runs jobs from `queue` with `handler` until the queue is closed and empty.
+///
+/// `handler` receives a clone of each job. On success the job is `Completed`.
+/// On failure it waits out its backoff and is requeued. Once it has no retries
+/// left it is recorded as `Failed` and counted in `failed`.
+///
+/// The queue lock is held only to take, requeue or record a job. It is never
+/// held while the handler runs or while waiting, so workers don't block each other.
+///
+/// Returns counts for this worker only. Combine several with `ProcessSummary::merge`.
 pub(crate) async fn run_worker<F, Fut>(
     queue: Arc<Mutex<JobQueue>>,
     handler: F,

@@ -1,18 +1,28 @@
+//! A single unit of work and the rules for changing its status.
+
 use std::time::Duration;
 
+/// Retries allowed after the first attempt, so a job runs at most 4 times.
 const MAX_RETRIES: u32 = 3;
+/// Wait before the first retry. Doubles with each further retry.
 const BASE_BACKOFF: Duration = Duration::from_millis(100);
+/// Upper limit on the wait between retries.
 const MAX_BACKOFF: Duration = Duration::from_secs(2);
 
+/// A unit of work. `status` is private and only changes through the methods
+/// below, so an invalid status change can't happen.
 #[derive(Clone)]
 pub(crate) struct Job {
     pub id: u64,
+    /// Input for the handler.
     pub payload: String,
     status: JobStatus,
+    /// Retries so far. 0 on the first attempt.
     pub retry_count: u32,
 }
 
 impl Job {
+    /// Creates a `Pending` job with no retries.
     pub(crate) fn new(id: u64, payload: String) -> Self {
         Self {
             id,
@@ -26,6 +36,7 @@ impl Job {
         self.status
     }
 
+    /// `Pending` -> `Running`. Any other status returns `InvalidTransition`.
     pub(crate) fn mark_running(&mut self) -> Result<(), JobError> {
         match self.status {
             JobStatus::Pending => {
@@ -36,6 +47,7 @@ impl Job {
         }
     }
 
+    /// `Running` -> `Completed`. Any other status returns `InvalidTransition`.
     pub(crate) fn mark_completed(&mut self) -> Result<(), JobError> {
         match self.status {
             JobStatus::Running => {
@@ -46,6 +58,7 @@ impl Job {
         }
     }
 
+    /// `Running` -> `Failed`. Any other status returns `InvalidTransition`.
     pub(crate) fn mark_failed(&mut self) -> Result<(), JobError> {
         match self.status {
             JobStatus::Running => {
@@ -56,6 +69,10 @@ impl Job {
         }
     }
 
+    /// `Failed` -> `Pending`, and adds 1 to `retry_count`.
+    ///
+    /// Returns `RetryLimitReached` once `retry_count` hits `MAX_RETRIES`, and
+    /// `InvalidTransition` if the job isn't `Failed`. Nothing changes on error.
     pub(crate) fn retry(&mut self) -> Result<(), JobError> {
         match self.status {
             JobStatus::Failed => {
@@ -71,18 +88,24 @@ impl Job {
         }
     }
 
-    /// How long to wait before the next retry: doubles with each retry, up to a maximum.
+    /// Wait before the next retry: 100 ms, 200 ms, 400 ms, ... capped at `MAX_BACKOFF`.
+    ///
+    /// Uses saturating maths, so a large `retry_count` can't overflow.
     pub(crate) fn backoff_delay(&self) -> Duration {
         let factor = 2u32.saturating_pow(self.retry_count);
 
         BASE_BACKOFF.saturating_mul(factor).min(MAX_BACKOFF)
     }
 
+    /// True if the job is `Failed` and has retries left. A worker uses this to
+    /// decide between waiting and requeueing, or giving up.
     pub(crate) fn can_retry(&self) -> bool {
         self.status == JobStatus::Failed && self.retry_count < MAX_RETRIES
     }
 }
 
+/// Where a job is: `Pending` -> `Running` -> `Completed` or `Failed`.
+/// A failed job goes back to `Pending` through `Job::retry`.
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub(crate) enum JobStatus {
     #[default]
@@ -92,9 +115,12 @@ pub(crate) enum JobStatus {
     Failed,
 }
 
+/// Why a status change was refused.
 #[derive(Debug, PartialEq)]
 pub(crate) enum JobError {
+    /// The job's current status doesn't allow this change.
     InvalidTransition,
+    /// The job has already been retried `MAX_RETRIES` times.
     RetryLimitReached,
 }
 
