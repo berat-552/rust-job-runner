@@ -112,11 +112,10 @@ impl JobQueue {
             return Err(QueueError::JobNotPending);
         }
 
-        if let Some(capacity) = self.capacity {
-            if self.jobs.len() >= capacity {
+        if let Some(capacity) = self.capacity
+            && self.jobs.len() >= capacity {
                 return Err(QueueError::QueueFull);
             }
-        }
 
         self.statuses.insert(job.id, JobStatus::Pending);
         self.jobs.push_back(job);
