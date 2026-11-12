@@ -194,7 +194,7 @@ mod tests {
     #[tokio::test]
     async fn submitted_job_is_pending_in_the_queue() {
         let state = test_state(10);
-       let _ = submit_job(State(state.clone()), request("work"))
+        let _ = submit_job(State(state.clone()), request("work"))
             .await
             .unwrap();
 

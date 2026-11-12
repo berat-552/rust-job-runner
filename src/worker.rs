@@ -20,10 +20,7 @@ const IDLE_POLL: Duration = Duration::from_millis(20);
 /// held while the handler runs or while waiting, so workers don't block each other.
 ///
 /// Returns counts for this worker only. Combine several with `ProcessSummary::merge`.
-pub(crate) async fn run_worker<F, Fut>(
-    queue: Arc<Mutex<JobQueue>>,
-    handler: F,
-) -> ProcessSummary
+pub(crate) async fn run_worker<F, Fut>(queue: Arc<Mutex<JobQueue>>, handler: F) -> ProcessSummary
 where
     F: Fn(Job) -> Fut + Send,
     Fut: Future<Output = Result<(), String>> + Send,
@@ -91,9 +88,7 @@ mod tests {
         let mut queue = JobQueue::new();
 
         for id in 1..=count {
-            queue
-                .submit(Job::new(id, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(id, String::from("test"))).unwrap();
         }
 
         queue.close();
@@ -107,7 +102,13 @@ mod tests {
 
         let summary = run_worker(queue, |_job| async { Ok(()) }).await;
 
-        assert_eq!(summary, ProcessSummary { completed: 0, failed: 0 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 0,
+                failed: 0
+            }
+        );
     }
 
     #[tokio::test]
@@ -116,7 +117,13 @@ mod tests {
 
         let summary = run_worker(queue, |_job| async { Ok(()) }).await;
 
-        assert_eq!(summary, ProcessSummary { completed: 3, failed: 0 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 3,
+                failed: 0
+            }
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -129,9 +136,15 @@ mod tests {
             handler_calls.fetch_add(1, Ordering::SeqCst);
             async { Err(String::from("boom")) }
         })
-            .await;
+        .await;
 
-        assert_eq!(summary, ProcessSummary { completed: 0, failed: 1 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 0,
+                failed: 1
+            }
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 4); // the original run plus 3 retries
     }
 
@@ -142,7 +155,13 @@ mod tests {
 
         let summary = run_worker(queue, |_job| async { Err(String::from("boom")) }).await;
 
-        assert_eq!(summary, ProcessSummary { completed: 0, failed: 1 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 0,
+                failed: 1
+            }
+        );
         // 100 ms + 200 ms + 400 ms between the four attempts, and no wait after the last.
         assert!(start.elapsed() >= Duration::from_millis(700));
     }
@@ -159,7 +178,7 @@ mod tests {
                 Ok(())
             }
         })
-            .await;
+        .await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -170,9 +189,7 @@ mod tests {
         for _ in 0..3 {
             let worker_queue = Arc::clone(&queue);
 
-            workers.spawn(async move {
-                run_worker(worker_queue, |_job| async { Ok(()) }).await
-            });
+            workers.spawn(async move { run_worker(worker_queue, |_job| async { Ok(()) }).await });
         }
 
         let mut total = ProcessSummary {
@@ -184,7 +201,13 @@ mod tests {
             total.merge(result.unwrap());
         }
 
-        assert_eq!(total, ProcessSummary { completed: 10, failed: 0 });
+        assert_eq!(
+            total,
+            ProcessSummary {
+                completed: 10,
+                failed: 0
+            }
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -206,7 +229,7 @@ mod tests {
                         Ok(())
                     }
                 })
-                    .await
+                .await
             });
         }
 
@@ -223,7 +246,13 @@ mod tests {
         ids.sort();
 
         assert_eq!(ids, (1..=20).collect::<Vec<u64>>());
-        assert_eq!(total, ProcessSummary { completed: 20, failed: 0 });
+        assert_eq!(
+            total,
+            ProcessSummary {
+                completed: 20,
+                failed: 0
+            }
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -236,9 +265,15 @@ mod tests {
             handler_seen.lock().unwrap().push(job.id);
             async { Err(String::from("boom")) }
         })
-            .await;
+        .await;
 
-        assert_eq!(summary, ProcessSummary { completed: 0, failed: 1 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 0,
+                failed: 1
+            }
+        );
         assert_eq!(*seen.lock().unwrap(), vec![1, 1, 1, 1]); // the original run plus 3 retries
     }
 
@@ -248,9 +283,8 @@ mod tests {
         let queue = Arc::new(Mutex::new(JobQueue::new()));
         let worker_queue = Arc::clone(&queue);
 
-        let worker = tokio::spawn(async move {
-            run_worker(worker_queue, |_job| async { Ok(()) }).await
-        });
+        let worker =
+            tokio::spawn(async move { run_worker(worker_queue, |_job| async { Ok(()) }).await });
 
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(!worker.is_finished());
@@ -258,7 +292,13 @@ mod tests {
         queue.lock().await.close();
 
         let summary = worker.await.unwrap();
-        assert_eq!(summary, ProcessSummary { completed: 0, failed: 0 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 0,
+                failed: 0
+            }
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -266,22 +306,25 @@ mod tests {
         let queue = Arc::new(Mutex::new(JobQueue::new()));
         let worker_queue = Arc::clone(&queue);
 
-        let worker = tokio::spawn(async move {
-            run_worker(worker_queue, |_job| async { Ok(()) }).await
-        });
+        let worker =
+            tokio::spawn(async move { run_worker(worker_queue, |_job| async { Ok(()) }).await });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         {
             let mut guard = queue.lock().await;
-            guard
-                .submit(Job::new(1, String::from("late")))
-                .unwrap();
+            guard.submit(Job::new(1, String::from("late"))).unwrap();
             guard.close();
         }
 
         let summary = worker.await.unwrap();
-        assert_eq!(summary, ProcessSummary { completed: 1, failed: 0 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 1,
+                failed: 0
+            }
+        );
     }
 
     #[tokio::test]
@@ -290,10 +333,7 @@ mod tests {
 
         run_worker(Arc::clone(&queue), |_job| async { Ok(()) }).await;
 
-        assert_eq!(
-            queue.lock().await.status_of(1),
-            Some(JobStatus::Completed)
-        );
+        assert_eq!(queue.lock().await.status_of(1), Some(JobStatus::Completed));
     }
 
     #[tokio::test(start_paused = true)]
@@ -303,7 +343,7 @@ mod tests {
         run_worker(Arc::clone(&queue), |_job| async {
             Err(String::from("boom"))
         })
-            .await;
+        .await;
 
         assert_eq!(queue.lock().await.status_of(1), Some(JobStatus::Failed));
     }
@@ -325,7 +365,13 @@ mod tests {
 
         let summary = run_worker(Arc::clone(&queue), |_job| async { Ok(()) }).await;
 
-        assert_eq!(summary, ProcessSummary { completed: 0, failed: 0 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 0,
+                failed: 0
+            }
+        );
         assert_eq!(queue.lock().await.len(), 3);
     }
 
@@ -342,9 +388,15 @@ mod tests {
                 Ok(())
             }
         })
-            .await;
+        .await;
 
-        assert_eq!(summary, ProcessSummary { completed: 1, failed: 0 });
+        assert_eq!(
+            summary,
+            ProcessSummary {
+                completed: 1,
+                failed: 0
+            }
+        );
         assert_eq!(queue.lock().await.len(), 4);
     }
 }

@@ -130,8 +130,7 @@ impl JobQueue {
         }
 
         let mut job = self.jobs.pop_front()?;
-        job.mark_running()
-            .expect("queued jobs should be pending");
+        job.mark_running().expect("queued jobs should be pending");
         self.statuses.insert(job.id, JobStatus::Running);
         Some(job)
     }
@@ -205,9 +204,7 @@ mod tests {
         let mut queue = JobQueue::new();
 
         for id in 1..=count {
-            queue
-                .submit(Job::new(id, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(id, String::from("test"))).unwrap();
         }
 
         queue
@@ -237,9 +234,7 @@ mod tests {
         #[test]
         fn one_job_gives_length_of_one() {
             let mut queue = JobQueue::new();
-            queue
-                .submit(Job::new(1, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(1, String::from("test"))).unwrap();
 
             assert_eq!(queue.len(), 1);
         }
@@ -290,9 +285,7 @@ mod tests {
         #[test]
         fn returns_submitted_job_and_empties_queue() {
             let mut queue = JobQueue::new();
-            queue
-                .submit(Job::new(1, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(1, String::from("test"))).unwrap();
 
             let result = queue.next_job();
 
@@ -345,9 +338,7 @@ mod tests {
         #[test]
         fn false_after_submit() {
             let mut queue = JobQueue::new();
-            queue
-                .submit(Job::new(1, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(1, String::from("test"))).unwrap();
 
             assert!(!queue.is_empty());
         }
@@ -355,9 +346,7 @@ mod tests {
         #[test]
         fn true_after_last_job_is_taken() {
             let mut queue = JobQueue::new();
-            queue
-                .submit(Job::new(1, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(1, String::from("test"))).unwrap();
 
             queue.next_job();
 
@@ -372,20 +361,14 @@ mod tests {
         async fn on_empty_queue_returns_none() {
             let mut queue = JobQueue::new();
 
-            assert!(queue
-                .process_next(|_job| async { Ok(()) })
-                .await
-                .is_none());
+            assert!(queue.process_next(|_job| async { Ok(()) }).await.is_none());
         }
 
         #[tokio::test]
         async fn marks_job_completed_when_handler_succeeds() {
             let mut queue = queue_with_jobs(1);
 
-            let job = queue
-                .process_next(|_job| async { Ok(()) })
-                .await
-                .unwrap();
+            let job = queue.process_next(|_job| async { Ok(()) }).await.unwrap();
 
             assert_eq!(job.status(), JobStatus::Completed);
         }
@@ -491,7 +474,13 @@ mod tests {
 
             let summary = queue.process_all(|_job| async { Ok(()) }).await;
 
-            assert_eq!(summary, ProcessSummary { completed: 0, failed: 0 });
+            assert_eq!(
+                summary,
+                ProcessSummary {
+                    completed: 0,
+                    failed: 0
+                }
+            );
         }
 
         #[tokio::test]
@@ -500,7 +489,13 @@ mod tests {
 
             let summary = queue.process_all(|_job| async { Ok(()) }).await;
 
-            assert_eq!(summary, ProcessSummary { completed: 3, failed: 0 });
+            assert_eq!(
+                summary,
+                ProcessSummary {
+                    completed: 3,
+                    failed: 0
+                }
+            );
             assert!(queue.is_empty());
         }
 
@@ -518,7 +513,13 @@ mod tests {
                 })
                 .await;
 
-            assert_eq!(summary, ProcessSummary { completed: 1, failed: 0 });
+            assert_eq!(
+                summary,
+                ProcessSummary {
+                    completed: 1,
+                    failed: 0
+                }
+            );
             assert!(queue.is_empty());
         }
 
@@ -534,7 +535,13 @@ mod tests {
                 })
                 .await;
 
-            assert_eq!(summary, ProcessSummary { completed: 0, failed: 1 });
+            assert_eq!(
+                summary,
+                ProcessSummary {
+                    completed: 0,
+                    failed: 1
+                }
+            );
             assert_eq!(calls.get(), 4); // the original run plus 3 retries
             assert!(queue.is_empty());
         }
@@ -545,11 +552,23 @@ mod tests {
 
         #[test]
         fn merge_adds_both_counts() {
-            let mut total = ProcessSummary { completed: 3, failed: 0 };
+            let mut total = ProcessSummary {
+                completed: 3,
+                failed: 0,
+            };
 
-            total.merge(ProcessSummary { completed: 2, failed: 1 });
+            total.merge(ProcessSummary {
+                completed: 2,
+                failed: 1,
+            });
 
-            assert_eq!(total, ProcessSummary { completed: 5, failed: 1 });
+            assert_eq!(
+                total,
+                ProcessSummary {
+                    completed: 5,
+                    failed: 1
+                }
+            );
         }
     }
 
@@ -604,9 +623,7 @@ mod tests {
             let mut queue = JobQueue::with_capacity(3);
 
             for id in 1..=3 {
-                queue
-                    .submit(Job::new(id, String::from("test")))
-                    .unwrap();
+                queue.submit(Job::new(id, String::from("test"))).unwrap();
             }
 
             assert_eq!(queue.len(), 3);
@@ -617,9 +634,7 @@ mod tests {
             let mut queue = JobQueue::with_capacity(2);
 
             for id in 1..=2 {
-                queue
-                    .submit(Job::new(id, String::from("test")))
-                    .unwrap();
+                queue.submit(Job::new(id, String::from("test"))).unwrap();
             }
 
             let result = queue.submit(Job::new(3, String::from("test")));
@@ -631,9 +646,7 @@ mod tests {
         #[test]
         fn submit_works_again_after_a_job_is_taken() {
             let mut queue = JobQueue::with_capacity(1);
-            queue
-                .submit(Job::new(1, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(1, String::from("test"))).unwrap();
 
             queue.next_job();
 
@@ -646,9 +659,7 @@ mod tests {
         #[tokio::test]
         async fn requeue_is_not_blocked_by_a_full_queue() {
             let mut queue = JobQueue::with_capacity(1);
-            queue
-                .submit(Job::new(1, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(1, String::from("test"))).unwrap();
 
             // Take job 1 and fail it, which empties the queue.
             let failed = queue
@@ -657,9 +668,7 @@ mod tests {
                 .unwrap();
 
             // Fill the queue again, then try to retry the failed job.
-            queue
-                .submit(Job::new(2, String::from("test")))
-                .unwrap();
+            queue.submit(Job::new(2, String::from("test"))).unwrap();
 
             let result = queue.requeue(failed);
 

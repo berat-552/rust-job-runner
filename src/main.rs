@@ -43,7 +43,7 @@ async fn main() {
                     _ => Ok(()),
                 }
             })
-                .await
+            .await
         });
     }
 
