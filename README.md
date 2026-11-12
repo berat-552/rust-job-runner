@@ -1,5 +1,7 @@
 # Rust Job Runner
 
+![CI](https://github.com/berat-552/rust-job-runner/actions/workflows/ci.yml/badge.svg)
+
 A small background job service written in Rust. You send it jobs over HTTP, a few workers run them in the background, and you can ask what happened to each job.
 
 A learning project, built to practise Rust and concurrent programming. It shows how a job queue works: shared state between workers, retries with backoff, backpressure, and shutting down without losing work in progress.
