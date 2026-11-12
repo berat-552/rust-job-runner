@@ -1,6 +1,6 @@
 # Rust Job Runner
 
-![CI](https://github.com/berat-552/rust-job-runner/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/berat-552/rust-job-runner/actions/workflows/ci.yml/badge.svg?branch=main)
 
 A small background job service written in Rust. You send it jobs over HTTP, a few workers run them in the background, and you can ask what happened to each job.
 
