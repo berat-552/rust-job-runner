@@ -70,11 +70,13 @@ impl JobQueue {
         self.jobs.len()
     }
 
+    #[allow(dead_code)] // only used by tests for now
     pub fn is_empty(&self) -> bool {
         self.jobs.is_empty()
     }
 
     /// Says no more jobs are coming. Jobs already waiting are still handed out.
+    #[allow(dead_code)] // only used by tests for now
     pub fn close(&mut self) {
         self.closed = true;
     }
@@ -140,6 +142,7 @@ impl JobQueue {
     ///
     /// Returns the finished job, or `None` if there was nothing to run. Doesn't
     /// retry or record the final status.
+    #[cfg(test)]
     pub async fn process_next<F, Fut>(&mut self, handler: F) -> Option<Job>
     where
         F: Fn(Job) -> Fut,
@@ -170,6 +173,7 @@ impl JobQueue {
 
     /// Single-threaded helper (the server doesn't use it). Runs jobs until the
     /// queue is empty, requeueing failures. Doesn't wait between retries.
+    #[cfg(test)]
     pub async fn process_all<F, Fut>(&mut self, handler: F) -> ProcessSummary
     where
         F: Fn(Job) -> Fut,
