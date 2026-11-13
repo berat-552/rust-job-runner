@@ -11,7 +11,7 @@ A learning project, built to practise Rust and concurrent programming. It shows 
 1. You `POST` a job to the server. It gets an id and goes into a queue.
 2. Three workers take jobs from the queue and run them at the same time.
 3. If a job fails, it is retried up to 3 times, waiting a bit longer each time (100 ms, 200 ms, 400 ms).
-4. You `GET` a job's id at any point to see if it is pending, running, completed or failed.
+4. You `GET` a job's id at any point to see if it is pending, running, completed or failed. `GET /stats` shows how many jobs are in each status.
 5. If the queue is full (10 jobs waiting), new jobs are refused with a "try again later" response.
 6. Press Ctrl-C and the server stops taking requests, running jobs finish, and the program exits cleanly.
 
@@ -73,6 +73,12 @@ Look up a job that doesn't exist (returns 404):
 try { Invoke-RestMethod -Uri http://127.0.0.1:3000/jobs/999 } catch { $_.Exception.Response.StatusCode }
 ```
 
+See how many jobs are in each status:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:3000/stats
+```
+
 Fill the queue to see it push back (the last few are refused with `ServiceUnavailable`):
 
 ```powershell
@@ -87,14 +93,15 @@ See a clean shutdown: post a few jobs, then press Ctrl-C in the server window. R
 | --- | --- |
 | `POST /jobs` with `{"payload": "..."}` | `201` with `{"id": N}`. `503` if the queue is full. |
 | `GET /jobs/{id}` | `200` with `{"id": N, "status": "..."}`. `404` if the id is unknown. `400` if the id isn't a number. |
+| `GET /stats` | `200` with `{"pending": N, "running": N, "completed": N, "failed": N}`. Counts every job since the server started. A job waiting to be retried counts as `running`. |
 
 ## What each file does
 
 - **`main.rs`**: starts everything. It creates the queue (max 10 waiting jobs), starts 3 workers with a demo job handler, runs the HTTP server, and handles Ctrl-C. After the server stops, it shuts the queue down, waits for the workers, and prints a summary.
 - **`job.rs`**: the `Job` itself: its id, payload, status and retry count. It only allows sensible status changes (for example, a job can't complete without running first), decides whether a job may be retried, and works out how long to wait before a retry.
-- **`queue.rs`**: the waiting line of jobs. It hands jobs out first-in, first-out, refuses new jobs when full, remembers the status of every job, and can be closed or shut down. It also has some older single-threaded processing helpers that the tests still use.
+- **`queue.rs`**: the waiting line of jobs. It hands jobs out first-in, first-out, refuses new jobs when full, remembers the status of every job and can count how many are in each status, and can be closed or shut down. It also has some older single-threaded processing helpers that the tests still use.
 - **`worker.rs`**: the worker loop. Each worker takes a job, runs it, and records the result. Failed jobs wait out their backoff and go back in the queue. When the queue is empty but still open, the worker waits and checks again. It exits when the queue is closed and empty.
-- **`api.rs`**: the HTTP side. It defines the two endpoints, gives each new job a unique id, and turns queue results into HTTP responses.
+- **`api.rs`**: the HTTP side. It defines the three endpoints, gives each new job a unique id, and turns queue results into HTTP responses.
 
 ## How it stays safe
 

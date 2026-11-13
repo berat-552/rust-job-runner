@@ -1,6 +1,8 @@
 //! The waiting line of jobs, shared between the HTTP handlers and the workers.
 //! It also keeps the latest status of every job it has seen.
 
+use serde::Serialize;
+
 use crate::job::{Job, JobStatus};
 use std::collections::{HashMap, VecDeque};
 
@@ -13,6 +15,15 @@ pub(crate) enum QueueError {
     RetryNotAllowed,
     /// The queue is at capacity. The caller should try again later.
     QueueFull,
+}
+
+/// Number of jobs in each status. Returned by `GET /stats`.
+#[derive(Debug, Default, PartialEq, Serialize)]
+pub(crate) struct StatusCounts {
+    pub pending: usize,
+    pub running: usize,
+    pub completed: usize,
+    pub failed: usize,
 }
 
 /// Counts of finished jobs. `failed` means given up after all retries, not
@@ -48,8 +59,8 @@ pub(crate) struct JobQueue {
 
 impl JobQueue {
     /// Creates an open queue with no size limit.
-    pub fn new() -> JobQueue {
-        JobQueue {
+    pub fn new() -> Self {
+        Self {
             jobs: VecDeque::new(),
             closed: false,
             stopped: false,
@@ -59,8 +70,8 @@ impl JobQueue {
     }
 
     /// Creates a queue that refuses new jobs once `capacity` are waiting.
-    pub fn with_capacity(capacity: usize) -> JobQueue {
-        JobQueue {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
             capacity: Some(capacity),
             ..JobQueue::new()
         }
@@ -121,6 +132,30 @@ impl JobQueue {
         self.statuses.insert(job.id, JobStatus::Pending);
         self.jobs.push_back(job);
         Ok(())
+    }
+
+    /// Counts how many jobs are in each status.
+    ///
+    /// Covers every job the queue has seen since it was created, including finished
+    /// ones. A job waiting to be retried counts as `running`.
+    pub fn status_counts(&self) -> StatusCounts {
+        let mut counts = StatusCounts {
+            pending: 0,
+            running: 0,
+            completed: 0,
+            failed: 0,
+        };
+
+        for status in self.statuses.values() {
+            match status {
+                JobStatus::Pending => counts.pending += 1,
+                JobStatus::Running => counts.running += 1,
+                JobStatus::Completed => counts.completed += 1,
+                JobStatus::Failed => counts.failed += 1,
+            }
+        }
+
+        counts
     }
 
     /// Removes the front job, marks it `Running` and returns it.
@@ -273,6 +308,77 @@ mod tests {
 
             assert_eq!(result, Err(QueueError::JobNotPending));
             assert_eq!(queue.len(), 0);
+        }
+    }
+
+    mod status_counts {
+        use crate::{
+            job::Job,
+            queue::{JobQueue, StatusCounts, tests::queue_with_jobs},
+        };
+
+        #[test]
+        fn new_queue_returns_all_zeros() {
+            let queue = JobQueue::new();
+
+            assert_eq!(queue.status_counts(), StatusCounts::default())
+        }
+
+        #[test]
+        fn counts_submitted_jobs_as_pending() {
+            let queue = queue_with_jobs(3);
+
+            assert_eq!(
+                queue.status_counts(),
+                StatusCounts {
+                    pending: 3,
+                    running: 0,
+                    completed: 0,
+                    failed: 0
+                }
+            )
+        }
+
+        #[test]
+        fn counts_job_taken_by_next_job_as_running() {
+            let mut queue = queue_with_jobs(3);
+            queue.next_job(); // marks the front job as 'running'
+
+            assert_eq!(
+                queue.status_counts(),
+                StatusCounts {
+                    pending: 2,
+                    running: 1,
+                    completed: 0,
+                    failed: 0
+                }
+            )
+        }
+
+        #[test]
+        fn counts_finished_jobs_by_outcome() {
+            let mut queue = JobQueue::new();
+
+            let mut job1 = Job::new(1, String::from("test"));
+            job1.mark_running().unwrap();
+            job1.mark_completed().unwrap();
+
+            let mut job2 = Job::new(2, String::from("test-2"));
+            job2.mark_running().unwrap();
+            job2.mark_failed().unwrap();
+
+            queue.record_finished(&job1);
+            queue.record_finished(&job2);
+
+            assert_eq!(
+                queue.status_counts(),
+                StatusCounts {
+                    pending: 0,
+                    running: 0,
+                    completed: 1,
+                    failed: 1,
+                }
+            );
         }
     }
 

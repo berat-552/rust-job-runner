@@ -1,7 +1,7 @@
-//! HTTP endpoints: submit a job (`POST /jobs`) and check its status (`GET /jobs/{id}`).
+//! HTTP endpoints for submitting jobs and checking their status.
 
 use crate::job::{Job, JobStatus};
-use crate::queue::{JobQueue, QueueError};
+use crate::queue::{JobQueue, QueueError, StatusCounts};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -48,11 +48,12 @@ pub(crate) struct StatusResponse {
     pub status: String,
 }
 
-/// Builds the router with both endpoints.
+/// Builds the router with endpoints.
 pub(crate) fn router(state: AppState) -> Router {
     Router::new()
         .route("/jobs", post(submit_job))
         .route("/jobs/{id}", get(get_job))
+        .route("/stats", get(get_stats))
         .with_state(state)
 }
 
@@ -105,6 +106,14 @@ async fn get_job(
     }
 }
 
+/// `GET /stats`: returns `200` with the number of jobs in each status.
+///
+/// Counts every job since the server started. A job waiting to be retried
+/// counts as `running`, because its worker still holds it.
+async fn get_stats(State(state): State<AppState>) -> Json<StatusCounts> {
+    Json(state.queue.lock().await.status_counts())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,6 +124,31 @@ mod tests {
         assert_eq!(status_name(JobStatus::Running), "running");
         assert_eq!(status_name(JobStatus::Completed), "completed");
         assert_eq!(status_name(JobStatus::Failed), "failed");
+    }
+
+    #[tokio::test]
+    async fn get_stats_counts_submitted_jobs() {
+        let state = test_state(10);
+
+        let _ = submit_job(State(state.clone()), request("work"))
+            .await
+            .unwrap();
+
+        let _ = submit_job(State(state.clone()), request("work2"))
+            .await
+            .unwrap();
+
+        let Json(counts) = get_stats(State(state)).await;
+
+        assert_eq!(
+            counts,
+            StatusCounts {
+                pending: 2,
+                running: 0,
+                completed: 0,
+                failed: 0,
+            }
+        )
     }
 
     #[tokio::test]
