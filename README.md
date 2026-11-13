@@ -73,7 +73,13 @@ Look up a job that doesn't exist (returns 404):
 try { Invoke-RestMethod -Uri http://127.0.0.1:3000/jobs/999 } catch { $_.Exception.Response.StatusCode }
 ```
 
-See how many jobs are in each status:
+Submit 10 jobs at once (they all fit in the queue):
+
+```powershell
+1..10 | ForEach-Object { Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/jobs -ContentType 'application/json' -Body '{"payload":"ok"}' }
+```
+
+See how many jobs are in each status. Run this straight after submitting the 10 jobs, then again a few seconds later, and you'll see them move from `pending` and `running` to `completed`:
 
 ```powershell
 Invoke-RestMethod -Uri http://127.0.0.1:3000/stats
